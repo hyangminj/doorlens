@@ -57,13 +57,13 @@ while(starttime < now and endtime > now):
         break
     #doorOpen()
     print("doorOpen")
-    now = datetime.now()
 
     existKey = read_key("keyinfo.json")
     if existKey['passwd'] != pre_pass:
       sys.exit()
     #cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
+  now = datetime.now()
   #cv2.imshow('img', img)
 
 ##  key = cv2.waitKey(1)
