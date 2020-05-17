@@ -12,12 +12,17 @@ cap = cv2.VideoCapture(0)
 
 #text = '%s (%s)' % (barcode_data, barcode_type)
 #print(barcode_data)
-if os.path.isfile("keyinfo.json"):
-  with open("keyinfo.json",'r') as f:
-    existKey=json.load(f)
-else:
-  log.error("keyfile is not exist")
-  sys.exit()
+def read_key(key_path):
+  if os.path.isfile(key_path):
+    with open(key_path,'r') as f:
+      existKey=json.load(f)
+  else:
+    log.error("keyfile is not exist")
+    sys.exit()
+  return existKey
+
+existKey = read_key("keyinfo.json")
+pre_pass = existKey["passwd"]
       
 i = 0
 #while(cap.isOpened()):
@@ -53,6 +58,10 @@ while(starttime < now and endtime > now):
     #doorOpen()
     print("doorOpen")
     now = datetime.now()
+
+    existKey = read_key("keyinfo.json")
+    if existKey['passwd'] != pre_pass:
+      sys.exit()
     #cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
   #cv2.imshow('img', img)
@@ -66,3 +75,4 @@ while(starttime < now and endtime > now):
 
 cap.release()
 cv2.destroyAllWindows()
+sys.exit()
