@@ -8,8 +8,6 @@ from datetime import datetime
 
 log = logger.logger(log_path="./logs.txt")
 
-cap = cv2.VideoCapture(0)
-
 #text = '%s (%s)' % (barcode_data, barcode_type)
 #print(barcode_data)
 def read_key(key_path):
@@ -20,6 +18,8 @@ def read_key(key_path):
     log.error("keyfile is not exist")
     sys.exit()
   return existKey
+
+cap = cv2.VideoCapture(0)
 
 existKey = read_key("keyinfo.json")
 pre_pass = existKey["passwd"]
@@ -58,10 +58,12 @@ while(starttime < now and endtime > now):
     #doorOpen()
     print("doorOpen")
 
-    existKey = read_key("keyinfo.json")
-    if existKey['passwd'] != pre_pass:
-      sys.exit()
-    #cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
+  existKey = read_key("keyinfo.json")
+  if existKey['passwd'] != pre_pass:
+    cap.release()
+    cv2.destroyAllWindows()
+    sys.exit()
+  #cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
   now = datetime.now()
   #cv2.imshow('img', img)
