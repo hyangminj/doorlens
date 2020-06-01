@@ -5,6 +5,11 @@ import os
 import logger
 import sys
 from datetime import datetime
+from datetime import timedelta 
+import RPi.GPIO as GPIO
+import time
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(17, GPIO.OUT) ## GPIO 17 ouput
 
 log = logger.logger(log_path="./logs.txt")
 
@@ -29,6 +34,8 @@ i = 0
 starttime = datetime.strptime(existKey['start'], "%Y-%m-%d, %H:%M:%S")
 endtime = datetime.strptime(existKey['end'], "%Y-%m-%d, %H:%M:%S")
 now = datetime.now()
+key_test = False 
+pre_time = now - timedelta(minutes=10)
 
 while(starttime < now and endtime > now):
   ret, img = cap.read()
@@ -51,17 +58,26 @@ while(starttime < now and endtime > now):
     readKey = json.loads(barcode_data)
     for k,v in existKey.items():
       if readKey[k] == v:
-        continue
+        key_test = True
       else:
         log.error("key is not matched, key : %s, value : %s, readed key : %s" % (k,v,readKey[k]))
-        break
-    #doorOpen()
+        key_test = False 
+
+  if key_test and (datetime.now()-pre_time)>timedelta(minutes=1):
     print("doorOpen")
+    GPIO.output(17, True)
+    time.sleep(5)
+    GPIO.output(17, False)
+    key_test = False 
+    pre_time=datetime.now()
+  else :
+    key_test = False 
 
   existKey = read_key("keyinfo.json")
   if existKey['passwd'] != pre_pass:
     cap.release()
     cv2.destroyAllWindows()
+    GPIO.cleanup()
     sys.exit()
   #cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
@@ -77,4 +93,5 @@ while(starttime < now and endtime > now):
 
 cap.release()
 cv2.destroyAllWindows()
+GPIO.cleanup()
 sys.exit()
