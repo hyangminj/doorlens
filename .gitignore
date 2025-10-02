@@ -1,0 +1,62 @@
+# DoorLens .gitignore
+
+# Configuration files with sensitive data
+# 민감한 데이터가 있는 설정 파일
+config.py
+**/config.py
+
+# Generated QR code images
+# 생성된 QR 코드 이미지
+*.png
+
+# Key information files
+# 키 정보 파일
+keyinfo.json
+**/keyinfo.json
+
+# Log files
+# 로그 파일
+*.txt
+*.log
+logs/
+*.logs
+
+# Python cache and compiled files
+# Python 캐시 및 컴파일된 파일
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+# 가상 환경
+venv/
+env/
+ENV/
+.venv
+
+# IDE specific files
+# IDE 관련 파일
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+# OS 관련 파일
+.DS_Store
+Thumbs.db
+
+# Test coverage
+# 테스트 커버리지
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Distribution / packaging
+# 배포 / 패키징
+dist/
+build/
+*.egg-info/
