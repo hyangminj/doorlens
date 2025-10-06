@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Note on Line Number References**: This documentation includes specific line number references (e.g., `rasberryQR.py:125-126`) that are accurate as of commit `d36c2e5` (2025-10-06). These references may become outdated if code changes. When in doubt, search for function names or use the described functionality as the primary reference.
+
 ## Project Overview
 
 DoorLens is an IoT smart door lock system that uses QR code authentication. The system consists of two main components:
@@ -75,22 +77,48 @@ See `requirements.txt` for complete list. Key dependencies:
 
 ## Configuration Requirements
 
-Both hostpart and raspart require a `config.py` file (not in repository) with:
+Both hostpart and raspart require a `config.py` file (not included in repository for security reasons).
 
-**hostpart config.py**:
+### Setting Up Configuration Files
+
+**hostpart/config.py**:
 ```python
 project_id = "your-gcp-project-id"
 topic_name = "your-pubsub-topic"
 email_id = "your-gmail-username"
-email_passwd = "your-gmail-app-password"
+email_passwd = "your-gmail-app-password"  # See security note below
 email_to = "recipient@example.com"
 ```
 
-**raspart config.py**:
+**raspart/config.py**:
 ```python
 project_id = "your-gcp-project-id"
 subscription_name = "your-pubsub-subscription"
 ```
+
+### Security Notes
+
+⚠️ **Important Security Considerations**:
+
+1. **Gmail App Passwords**:
+   - `email_passwd` must be a Gmail App-Specific Password, NOT your regular Gmail password
+   - Generate at: https://myaccount.google.com/apppasswords (requires 2FA enabled)
+   - Never commit actual passwords to version control
+
+2. **Google Cloud Credentials**:
+   - Ensure Google Cloud service account JSON key is configured
+   - Set `GOOGLE_APPLICATION_CREDENTIALS` environment variable or use default credentials
+   - Service account needs `roles/pubsub.publisher` (host) and `roles/pubsub.subscriber` (Pi)
+
+3. **Config File Protection**:
+   - Config files are in `.gitignore` to prevent accidental commits
+   - Set appropriate file permissions: `chmod 600 config.py`
+   - Never share config files or include them in documentation/screenshots
+
+4. **GPIO Pin Selection**:
+   - Pin 17 (BCM numbering) is hardcoded for door lock control
+   - To use a different pin, modify `GPIO.setup()` calls in rasberryQR.py and doorlock.py
+   - BCM pin 17 = Physical pin 11 on Raspberry Pi header
 
 ## Running the System
 
@@ -158,10 +186,15 @@ The QR code contains JSON with 4 fields:
 - Parsed with `datetime.strptime()` in rasberryQR.py:125-126
 - Scanner only runs while `starttime < now < endtime` (rasberryQR.py:137)
 - Loop updates `now = datetime.now()` each iteration (rasberryQR.py:202)
+- **Timezone**: All times use local system time (no timezone conversion)
+  - Host and Pi should be in same timezone or times may be incorrect
+  - Consider using UTC for distributed deployments
 
 ### Rate Limiting Implementation
 - Prevents door from unlocking more than once per minute
 - Uses `pre_time` variable initialized to `now - timedelta(minutes=10)` (rasberryQR.py:132)
+  - Initial value of 10 minutes in the past allows immediate unlock on first valid scan
+  - This prevents waiting 1 minute after scanner starts
 - Check: `if key_test and (datetime.now() - pre_time) > timedelta(minutes=1)` (rasberryQR.py:184)
 - Updates `pre_time = datetime.now()` after each unlock (rasberryQR.py:187)
 
@@ -190,3 +223,58 @@ The QR code contains JSON with 4 fields:
 - Keys automatically invalidate outside time window
 - QR scanner exits when password changes in keyinfo.json
 - Rate limiting prevents repeated door activations (max 1/minute)
+
+## Error Handling and Common Failure Scenarios
+
+### Camera Initialization Failure
+**Symptom**: `cv2.VideoCapture(0)` fails or returns None
+- **Check**: Camera device exists with `ls -l /dev/video*`
+- **Fix**: Ensure camera is connected and enabled in `raspi-config`
+- **Behavior**: Scanner will run but `cap.read()` returns `(False, None)`, causing continuous loop skipping
+- **Code**: No explicit error handling - loop continues with `continue` when `ret` is False (rasberryQR.py:143-145)
+
+### Pub/Sub Connection Failure
+**Symptom**: Messages not published/received
+- **hostpart**: `pub.pub()` may raise exceptions if project_id or topic_name is invalid
+- **raspart**: `sub.py` subscriber will block indefinitely waiting for messages
+- **Check**: Verify GCP credentials with `gcloud auth application-default login`
+- **Check**: Ensure topic and subscription exist in GCP console
+- **Logs**: Check logs.txt for authentication or permission errors
+
+### Missing keyinfo.json
+**Symptom**: Scanner exits immediately with SystemExit
+- **Cause**: `read_key()` calls `sys.exit()` if file doesn't exist (rasberryQR.py:50-51)
+- **Fix**: Ensure `sub.py` has received at least one message to create keyinfo.json
+- **Prevention**: Run `python3 hostpart/testpart.py` before starting scanner
+
+### Invalid QR Code Format
+**Symptom**: QR codes scanned but door doesn't unlock
+- **Cause**: JSON parsing fails or fields don't match
+- **Behavior**: `json.JSONDecodeError` caught, `key_test` set to False (rasberryQR.py:174-178)
+- **Logs**: Error logged with message "Invalid QR code format: {data}"
+- **Debug**: Check that QR contains valid JSON with all required fields
+
+### GPIO Permission Denied
+**Symptom**: `GPIO.setup()` raises permission error
+- **Fix**: Run as root (`sudo python3`) or add user to gpio group
+- **Fix**: `sudo usermod -a -G gpio $USER` then logout/login
+- **Note**: Production deployments should use systemd service running as privileged user
+
+### Email Sending Failures
+**Symptom**: Key generated but email not received
+- **Common causes**:
+  - Using regular Gmail password instead of App Password
+  - Gmail account doesn't have 2FA enabled (required for App Passwords)
+  - SMTP port 587 blocked by firewall
+  - Incorrect recipient address
+- **Debug**: Check host logs for SMTP errors
+- **Test**: Try manual SMTP connection: `telnet smtp.gmail.com 587`
+
+### Time Synchronization Issues
+**Symptom**: Valid QR code rejected due to time mismatch
+- **Cause**: Host and Pi system clocks out of sync
+- **Check**: Compare times with `date` command on both machines
+- **Fix**: Enable NTP on both systems:
+  - `sudo timedatectl set-ntp true`
+  - `sudo systemctl restart systemd-timesyncd`
+- **Verify**: `timedatectl status` shows "System clock synchronized: yes"
