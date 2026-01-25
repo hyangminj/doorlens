@@ -105,7 +105,7 @@ class EmailSender:
             # 메시지 생성
             msg = MIMEMultipart()
             msg['Subject'] = subject
-            msg['From'] = f"{self.config.sender_id}@gmail.com"
+            msg['From'] = self.config.sender_id
             msg['To'] = recipient_address
 
             # Add body
