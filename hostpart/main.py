@@ -98,7 +98,7 @@ def generate_and_distribute_key(
             topic_name=topic_name
         )
         publisher = PubSubPublisher(pubsub_config, logger)
-        message_id = publisher.publish_string(key.to_json())
+        message_id = publisher.publish_string(key.to_json(include_utc=use_utc))
 
         logger.info(f"Published message: {message_id}")
 
