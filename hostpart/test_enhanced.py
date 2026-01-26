@@ -294,7 +294,9 @@ class TestEmailSender(unittest.TestCase):
         )
         sender = EmailSender(config)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as f:
+        # Create file in current working directory to pass path traversal check
+        # 경로 탐색 검사를 통과하기 위해 현재 작업 디렉토리에 파일 생성
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir=os.getcwd()) as f:
             test_file = f.name
             f.write(b'test image data')
 
@@ -388,7 +390,9 @@ class TestEmailSender(unittest.TestCase):
         )
         sender = EmailSender(config)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as f:
+        # Create file in current working directory to pass path traversal check
+        # 경로 탐색 검사를 통과하기 위해 현재 작업 디렉토리에 파일 생성
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir=os.getcwd()) as f:
             test_file = f.name
             f.write(b'test data')
 
