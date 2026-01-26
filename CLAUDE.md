@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Note on Line Number References**: This documentation includes specific line number references (e.g., `rasberryQR.py:125-126`) that are accurate as of commit `d36c2e5` (2025-10-06). These references may become outdated if code changes. When in doubt, search for function names or use the described functionality as the primary reference.
+> **Note on Line Number References**: This documentation includes specific line number references that may become outdated if code changes. When in doubt, search for function names or use the described functionality as the primary reference.
 
 ## Project Overview
 
@@ -10,6 +10,38 @@ DoorLens is an IoT smart door lock system that uses QR code authentication. The 
 
 - **hostpart**: Server-side key generation and distribution (runs on any machine with Python)
 - **raspart**: Raspberry Pi QR scanner and door controller (requires Raspberry Pi with camera and GPIO)
+
+## Enhanced Architecture (v2.0)
+
+The system has been refactored with the following improvements:
+
+### New Module Structure
+
+**hostpart** (Refactored):
+- `constants.py` - Centralized configuration constants and dataclasses
+- `key_generator.py` - Class-based key generation with audit trail
+- `email_sender.py` - Enhanced email sending with proper error handling
+- `publisher.py` - Pub/Sub publisher with error handling
+- `main.py` - New entry point with CLI argument support
+- Legacy modules (`testpart.py`, `pub.py`, `emailsend.py`) retained for backward compatibility
+
+**raspart** (Refactored):
+- `constants.py` - Centralized configuration and DoorConfig dataclass
+- `door_controller.py` - Abstracted door control with GPIO and Mock implementations
+- `qr_scanner.py` - Class-based QR scanner with proper encapsulation
+- `subscriber.py` - Secure Pub/Sub subscriber with subprocess management
+- Legacy modules (`rasberryQR.py`, `sub.py`) retained for backward compatibility
+
+### Key Improvements
+
+1. **Class-Based Architecture**: All components refactored into proper classes
+2. **Error Handling**: Comprehensive try-except blocks with proper cleanup
+3. **Signal Handlers**: Graceful shutdown on SIGTERM/SIGINT
+4. **Security**: `os.system()` replaced with `subprocess.run()`
+5. **Multi-Door Support**: Configurable GPIO pins via DoorConfig
+6. **UTC Timezone Support**: Optional UTC time handling for distributed deployments
+7. **Audit Trail**: Access attempts logged with timestamps and outcomes
+8. **Rate Limiting**: Proper rate limiting in GPIODoorController class
 
 ## Architecture
 
@@ -140,6 +172,26 @@ cd raspart
 python3 doorlock.py
 ```
 
+### Using New Enhanced Modules (Recommended):
+
+**Generate key with CLI options (on host)**:
+```bash
+cd hostpart
+python3 main.py --expire 15 --utc  # 15 minutes, UTC time
+```
+
+**Start enhanced scanner (on Raspberry Pi)**:
+```bash
+cd raspart
+python3 qr_scanner.py
+```
+
+**Start enhanced subscriber (on Raspberry Pi)**:
+```bash
+cd raspart
+python3 subscriber.py
+```
+
 ## Testing
 
 The project includes comprehensive unit tests for both components:
@@ -166,6 +218,15 @@ python3 -m pytest raspart/test_raspart.py -v
 ### Run a single test:
 ```bash
 python3 -m pytest hostpart/test_hostpart.py::TestDoorKey::test_create_key_generates_qr_code -v
+```
+
+### Run enhanced module tests:
+```bash
+# Enhanced host part tests
+python3 -m pytest hostpart/test_enhanced.py -v
+
+# Enhanced raspart tests
+python3 -m pytest raspart/test_enhanced.py -v
 ```
 
 ## Important Implementation Details
