@@ -196,7 +196,22 @@ class KeyGenerator:
 
         Returns:
             str: Path to generated QR code image / 생성된 QR 코드 이미지 경로
+
+        Raises:
+            ValueError: If output_dir is invalid / output_dir가 유효하지 않을 경우
         """
+        # Validate and create output directory if it doesn't exist
+        # 출력 디렉토리가 존재하지 않으면 검증 및 생성
+        if not output_dir:
+            raise ValueError("output_dir cannot be empty / output_dir는 비워둘 수 없습니다")
+
+        if not os.path.isdir(output_dir):
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                self.logger.info(f"Created output directory: {output_dir}")
+            except OSError as e:
+                raise ValueError(f"Failed to create output directory: {output_dir}. Error: {e}")
+
         # Create QR code
         # QR 코드 생성
         qr_data = key.to_json(include_utc=include_utc)

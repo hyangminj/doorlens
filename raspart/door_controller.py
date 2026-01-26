@@ -87,6 +87,7 @@ class GPIODoorController(DoorControllerBase):
         # 속도 제한 상태
         self._last_unlock_time: Optional[datetime] = None
         self._initialized = False
+        self._cleanup_done = False  # Flag to prevent double cleanup / 중복 정리 방지 플래그
 
         # Initialize GPIO
         # GPIO 초기화
@@ -211,7 +212,18 @@ class GPIODoorController(DoorControllerBase):
         """
         Clean up GPIO resources.
         GPIO 리소스를 정리합니다.
+
+        Thread-safe cleanup that prevents race conditions when called
+        from signal handlers.
+        신호 처리기에서 호출될 때 경쟁 조건을 방지하는 스레드 안전 정리입니다.
         """
+        # Prevent double cleanup (race condition protection)
+        # 중복 정리 방지 (경쟁 조건 보호)
+        if self._cleanup_done:
+            return
+
+        self._cleanup_done = True
+
         if not self._initialized:
             return
 

@@ -96,6 +96,21 @@ class EmailSender:
         if not os.path.isfile(key_path):
             raise EmailSendError(f"Key file not found: {key_path}")
 
+        # Security: Validate path to prevent path traversal attacks
+        # 보안: 경로 탐색 공격을 방지하기 위한 경로 검증
+        abs_key_path = os.path.abspath(key_path)
+        # Ensure the file is within the current working directory or explicitly allowed paths
+        # 파일이 현재 작업 디렉토리 또는 명시적으로 허용된 경로 내에 있는지 확인
+        cwd = os.path.abspath(os.getcwd())
+        if not abs_key_path.startswith(cwd + os.sep) and not abs_key_path == cwd:
+            # Check if it's a direct file in cwd
+            if os.path.dirname(abs_key_path) != cwd:
+                self.logger.warning(f"Potential path traversal attempt: {key_path}")
+                raise EmailSendError(
+                    f"Invalid key path: file must be within the working directory. "
+                    f"잘못된 키 경로: 파일은 작업 디렉토리 내에 있어야 합니다."
+                )
+
         subject = subject or self.config.subject
         body = body or self.config.body
 
