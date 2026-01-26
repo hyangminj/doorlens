@@ -127,6 +127,35 @@ class TestGPIODoorController(unittest.TestCase):
         mock_gpio.setmode.assert_called_once()
         mock_gpio.setup.assert_called_once_with(17, mock_gpio.OUT)
 
+    def test_cleanup_race_condition_protection(self):
+        """Test that double cleanup is prevented (race condition protection)."""
+        with patch('door_controller.GPIO_AVAILABLE', False):
+            controller = GPIODoorController(gpio_pin=17)
+
+            # First cleanup should work
+            controller.cleanup()
+            self.assertTrue(controller._cleanup_done)
+
+            # Second cleanup should be skipped (no error, but no action)
+            controller.cleanup()
+            self.assertTrue(controller._cleanup_done)
+
+    @patch('door_controller.GPIO_AVAILABLE', True)
+    @patch('door_controller.GPIO')
+    def test_cleanup_only_runs_once_with_gpio(self, mock_gpio):
+        """Test that GPIO cleanup only runs once even if called multiple times."""
+        controller = GPIODoorController(gpio_pin=17)
+
+        # First cleanup
+        controller.cleanup()
+        first_cleanup_call_count = mock_gpio.cleanup.call_count
+
+        # Second cleanup should not call GPIO.cleanup again
+        controller.cleanup()
+        second_cleanup_call_count = mock_gpio.cleanup.call_count
+
+        self.assertEqual(first_cleanup_call_count, second_cleanup_call_count)
+
     @patch('door_controller.GPIO_AVAILABLE', False)
     def test_simulation_mode(self):
         """Test controller runs in simulation mode without GPIO."""
@@ -401,6 +430,112 @@ class TestSubscriber(unittest.TestCase):
         finally:
             if os.path.exists(key_file):
                 os.remove(key_file)
+
+    def test_save_key_sets_restrictive_permissions(self):
+        """Test that saved key file has restrictive permissions (0o600)."""
+        from subscriber import DoorLensSubscriber, SubscriberConfig
+        import stat
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            key_file = f.name
+
+        try:
+            config = SubscriberConfig(
+                project_id="test-project",
+                subscription_name="test-sub",
+                key_file=key_file
+            )
+            subscriber = DoorLensSubscriber(config)
+
+            key_data = json.dumps({'doorID': 'test', 'passwd': 'test'})
+            subscriber._save_key(key_data)
+
+            # Check file permissions
+            file_stat = os.stat(key_file)
+            mode = stat.S_IMODE(file_stat.st_mode)
+
+            # Should be 0o600 (owner read/write only)
+            self.assertEqual(mode, 0o600)
+
+        finally:
+            if os.path.exists(key_file):
+                os.remove(key_file)
+
+
+class TestSubscriberProcessMonitoring(unittest.TestCase):
+    """Test cases for subscriber process monitoring feature."""
+
+    def test_monitor_scanner_config_option(self):
+        """Test that monitor_scanner config option is available."""
+        from subscriber import SubscriberConfig
+
+        config = SubscriberConfig(
+            project_id="test-project",
+            subscription_name="test-sub",
+            monitor_scanner=False
+        )
+
+        self.assertFalse(config.monitor_scanner)
+
+        config_enabled = SubscriberConfig(
+            project_id="test-project",
+            subscription_name="test-sub",
+            monitor_scanner=True
+        )
+
+        self.assertTrue(config_enabled.monitor_scanner)
+
+    def test_stop_process_monitor_safe_when_no_thread(self):
+        """Test that stopping monitor is safe when no thread exists."""
+        from subscriber import DoorLensSubscriber, SubscriberConfig
+
+        config = SubscriberConfig(
+            project_id="test-project",
+            subscription_name="test-sub",
+            monitor_scanner=False
+        )
+        subscriber = DoorLensSubscriber(config)
+
+        # Should not raise any exceptions
+        subscriber._stop_process_monitor()
+
+    @patch('subscriber.threading.Thread')
+    def test_start_process_monitor_creates_thread(self, mock_thread_class):
+        """Test that process monitor creates a daemon thread."""
+        from subscriber import DoorLensSubscriber, SubscriberConfig
+
+        mock_thread = MagicMock()
+        mock_thread_class.return_value = mock_thread
+
+        config = SubscriberConfig(
+            project_id="test-project",
+            subscription_name="test-sub",
+            monitor_scanner=True
+        )
+        subscriber = DoorLensSubscriber(config)
+
+        subscriber._start_process_monitor()
+
+        mock_thread_class.assert_called_once()
+        call_kwargs = mock_thread_class.call_args[1]
+        self.assertTrue(call_kwargs['daemon'])
+        self.assertEqual(call_kwargs['name'], 'ScannerProcessMonitor')
+        mock_thread.start.assert_called_once()
+
+    def test_monitor_disabled_does_not_start_thread(self):
+        """Test that monitor thread is not started when disabled."""
+        from subscriber import DoorLensSubscriber, SubscriberConfig
+
+        config = SubscriberConfig(
+            project_id="test-project",
+            subscription_name="test-sub",
+            monitor_scanner=False
+        )
+        subscriber = DoorLensSubscriber(config)
+
+        subscriber._start_process_monitor()
+
+        self.assertIsNone(subscriber._monitor_thread)
 
 
 def run_tests():

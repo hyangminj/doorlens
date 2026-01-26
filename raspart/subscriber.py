@@ -12,6 +12,8 @@ import signal
 import subprocess
 import sys
 import logging
+import threading
+import time
 from typing import Optional, Callable
 from datetime import datetime
 from dataclasses import dataclass
@@ -19,6 +21,12 @@ from dataclasses import dataclass
 from google.cloud import pubsub_v1
 
 from constants import DEFAULT_KEY_FILE, DEFAULT_LOG_FILE
+
+
+# Constants for process monitoring
+# 프로세스 모니터링 상수
+PROCESS_CHECK_INTERVAL_SECONDS = 5
+PROCESS_TERMINATION_TIMEOUT = 5
 
 
 @dataclass
@@ -32,6 +40,7 @@ class SubscriberConfig:
     key_file: str = DEFAULT_KEY_FILE
     log_file: str = DEFAULT_LOG_FILE
     scanner_script: str = "qr_scanner.py"
+    monitor_scanner: bool = True  # Enable scanner process monitoring / 스캐너 프로세스 모니터링 활성화
 
 
 class DoorLensSubscriber:
@@ -41,15 +50,17 @@ class DoorLensSubscriber:
 
     Features:
     - Secure subprocess execution (no shell injection)
-    - Process lifecycle management
+    - Process lifecycle management with health monitoring
     - Graceful shutdown handling
     - Message deduplication
+    - Scanner process crash detection and logging
 
     기능:
     - 안전한 서브프로세스 실행 (쉘 인젝션 없음)
-    - 프로세스 수명 관리
+    - 상태 모니터링을 포함한 프로세스 수명 관리
     - 정상적인 종료 처리
     - 메시지 중복 제거
+    - 스캐너 프로세스 충돌 감지 및 로깅
     """
 
     def __init__(
@@ -76,6 +87,8 @@ class DoorLensSubscriber:
         self._scanner_process: Optional[subprocess.Popen] = None
         self._running = False
         self._last_message_id: Optional[str] = None
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_running = False
 
         self._register_signal_handlers()
 
@@ -108,15 +121,87 @@ class DoorLensSubscriber:
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
+    def _stop_process_monitor(self) -> None:
+        """
+        Stop the process monitor thread.
+        프로세스 모니터 스레드를 중지합니다.
+        """
+        self._monitor_running = False
+        if self._monitor_thread is not None and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=2)
+            self._monitor_thread = None
+
+    def _start_process_monitor(self) -> None:
+        """
+        Start a background thread to monitor the scanner process health.
+        스캐너 프로세스 상태를 모니터링하는 백그라운드 스레드를 시작합니다.
+        """
+        if not self.config.monitor_scanner:
+            return
+
+        self._stop_process_monitor()
+        self._monitor_running = True
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_scanner_process,
+            daemon=True,
+            name="ScannerProcessMonitor"
+        )
+        self._monitor_thread.start()
+        self.logger.debug("Process monitor thread started")
+
+    def _monitor_scanner_process(self) -> None:
+        """
+        Monitor scanner process and log if it crashes.
+        스캐너 프로세스를 모니터링하고 충돌 시 로그를 기록합니다.
+
+        This runs in a background thread and checks process status periodically.
+        백그라운드 스레드에서 실행되며 주기적으로 프로세스 상태를 확인합니다.
+        """
+        while self._monitor_running and self._scanner_process is not None:
+            time.sleep(PROCESS_CHECK_INTERVAL_SECONDS)
+
+            if self._scanner_process is None:
+                break
+
+            # Check if process has terminated
+            # 프로세스가 종료되었는지 확인
+            return_code = self._scanner_process.poll()
+            if return_code is not None:
+                # Process has terminated
+                # 프로세스가 종료됨
+                if return_code == 0:
+                    self.logger.info("Scanner process exited normally (code 0)")
+                else:
+                    self.logger.error(
+                        f"Scanner process crashed unexpectedly (exit code: {return_code})"
+                    )
+                    # Try to capture stderr for debugging
+                    # 디버깅을 위해 stderr 캡처 시도
+                    try:
+                        if self._scanner_process.stderr:
+                            stderr_output = self._scanner_process.stderr.read()
+                            if stderr_output:
+                                stderr_text = stderr_output.decode('utf-8', errors='replace')
+                                self.logger.error(f"Scanner stderr: {stderr_text[:500]}")
+                    except Exception as e:
+                        self.logger.debug(f"Could not read scanner stderr: {e}")
+
+                self._scanner_process = None
+                break
+
     def _stop_scanner_process(self) -> None:
         """
         Stop any running scanner process.
         실행 중인 스캐너 프로세스를 중지합니다.
         """
+        # Stop the monitor first
+        # 먼저 모니터 중지
+        self._stop_process_monitor()
+
         if self._scanner_process is not None:
             try:
                 self._scanner_process.terminate()
-                self._scanner_process.wait(timeout=5)
+                self._scanner_process.wait(timeout=PROCESS_TERMINATION_TIMEOUT)
                 self.logger.info("Scanner process terminated")
             except subprocess.TimeoutExpired:
                 self._scanner_process.kill()
@@ -158,6 +243,11 @@ class DoorLensSubscriber:
             )
 
             self.logger.info(f"Scanner process started (PID: {self._scanner_process.pid})")
+
+            # Start process monitor
+            # 프로세스 모니터 시작
+            self._start_process_monitor()
+
             return True
 
         except Exception as e:
@@ -182,6 +272,10 @@ class DoorLensSubscriber:
 
             with open(self.config.key_file, 'w') as f:
                 f.write(key_data)
+
+            # Set restrictive file permissions (owner read/write only)
+            # 제한적 파일 권한 설정 (소유자 읽기/쓰기만 허용)
+            os.chmod(self.config.key_file, 0o600)
 
             self.logger.info(f"Key saved to {self.config.key_file}")
             return True

@@ -208,6 +208,57 @@ class TestDoorKeyBackwardCompatibility(unittest.TestCase):
         self.assertEqual(data['doorID'], 'test-door')
 
 
+class TestKeyGeneratorSecurity(unittest.TestCase):
+    """Test cases for KeyGenerator security improvements."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_dir = os.getcwd()
+        os.chdir(self.test_dir)
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_dir)
+        shutil.rmtree(self.test_dir)
+
+    def test_create_qr_image_creates_missing_directory(self):
+        """Test that create_qr_image creates missing output directory."""
+        config = KeyGeneratorConfig(door_id="test-door")
+        generator = KeyGenerator(config)
+
+        key = generator.generate_key()
+        nested_dir = os.path.join(self.test_dir, "nested", "output", "dir")
+
+        qr_path = generator.create_qr_image(key, output_dir=nested_dir)
+
+        self.assertTrue(os.path.exists(nested_dir))
+        self.assertTrue(os.path.exists(qr_path))
+
+    def test_create_qr_image_empty_output_dir_raises_error(self):
+        """Test that empty output_dir raises ValueError."""
+        config = KeyGeneratorConfig(door_id="test-door")
+        generator = KeyGenerator(config)
+
+        key = generator.generate_key()
+
+        with self.assertRaises(ValueError) as context:
+            generator.create_qr_image(key, output_dir="")
+
+        self.assertIn("empty", str(context.exception).lower())
+
+    def test_create_qr_image_invalid_path_raises_error(self):
+        """Test that invalid path raises ValueError."""
+        config = KeyGeneratorConfig(door_id="test-door")
+        generator = KeyGenerator(config)
+
+        key = generator.generate_key()
+
+        # Use a path that cannot be created (null byte in path)
+        with self.assertRaises(ValueError):
+            generator.create_qr_image(key, output_dir="/nonexistent\x00path")
+
+
 class TestEmailSender(unittest.TestCase):
     """Test cases for EmailSender class."""
 
@@ -270,6 +321,55 @@ class TestEmailSender(unittest.TestCase):
 
         with self.assertRaises(EmailSendError):
             sender.send_key("nonexistent.png", "recipient@example.com")
+
+    def test_send_key_path_traversal_prevention(self):
+        """Test that path traversal attacks are blocked."""
+        config = EmailConfig(
+            sender_id="test",
+            sender_password="password"
+        )
+        sender = EmailSender(config)
+
+        # Create a file outside cwd to simulate path traversal attack
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir='/tmp') as f:
+            test_file = f.name
+            f.write(b'test image data')
+
+        try:
+            # This should raise EmailSendError due to path traversal protection
+            with self.assertRaises(EmailSendError) as context:
+                sender.send_key(test_file, "recipient@example.com")
+
+            self.assertIn("working directory", str(context.exception).lower())
+
+        finally:
+            if os.path.exists(test_file):
+                os.remove(test_file)
+
+    @patch('email_sender.smtplib.SMTP')
+    def test_send_key_within_cwd_succeeds(self, mock_smtp):
+        """Test that files within current working directory are allowed."""
+        mock_server = MagicMock()
+        mock_smtp.return_value = mock_server
+
+        config = EmailConfig(
+            sender_id="test",
+            sender_password="password"
+        )
+        sender = EmailSender(config)
+
+        # Create a file in current working directory
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png', dir=os.getcwd()) as f:
+            test_file = f.name
+            f.write(b'test image data')
+
+        try:
+            result = sender.send_key(test_file, "recipient@example.com")
+            self.assertTrue(result)
+
+        finally:
+            if os.path.exists(test_file):
+                os.remove(test_file)
 
     @patch('email_sender.smtplib.SMTP')
     def test_send_key_auth_failure(self, mock_smtp):
