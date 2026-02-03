@@ -171,8 +171,7 @@ ls -l /dev/video*
 - Test with `doorlock.py`
 
 ## License
-
-[Specify your license here]
+GPL License
 
 ---
 
@@ -349,5 +348,4 @@ ls -l /dev/video*
 - `doorlock.py`로 테스트
 
 ## 라이선스
-
-[라이선스를 여기에 명시하세요]
+GPL License
